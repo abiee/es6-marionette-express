@@ -19,24 +19,24 @@ module.exports = function(config) {
     files: [
       'bower_components/handlebars/handlebars.js',
       'bower_components/jquery/dist/jquery.js',
-      'test/spec/fixtures/**/*',
-      'test/index.js'
+      'test/frontend/spec/fixtures/**/*',
+      'test/frontend/index.js'
     ],
 
     // preprocess matching files before serving them to the browser
     // available preprocessors: https://npmjs.org/browse/keyword/karma-preprocesso
     preprocessors: {
-	    'test/*': ['webpack'],
-      'test/spec/fixtures/**/*.html': ['html2js'],
-      'test/spec/fixtures/**/*.json': ['html2js']
-	  },
+      'test/frontend/**/*.js': ['webpack'],
+      'test/frontend/spec/fixtures/**/*.html': ['html2js'],
+      'test/frontend/spec/fixtures/**/*.json': ['html2js']
+    },
 
     webpack: _.omit(require('./webpack.config'), 'entry', 'plugins'),
     webpackMiddleware: {
-  		stats: {
-			  colors: true
-		  }
-	  },
+        stats: {
+        colors: true
+      }
+    },
 
     // report on console and growl if available
     //

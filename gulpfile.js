@@ -46,7 +46,12 @@ var DevWebpackCompiler = (function() {
 
 // Lint Javascript
 gulp.task('jshint', function () {
-  return gulp.src(['app/scripts/**/*.js', '!app/scripts/vendor/**/*.js'])
+  return gulp.src([
+      'app/scripts/**/*.js',
+      'server/**/*.js',
+      'test/**/*.js',
+      '!app/scripts/vendor/**/*.js',
+  ])
     .pipe($.jshint({ lookup: true }))
     .pipe($.jshint.reporter('jshint-stylish'))
     .pipe($.jshint.reporter('fail'));
@@ -59,8 +64,15 @@ gulp.task('images', function () {
       progressive: true,
       interlaced: true
     })))
-    .pipe(gulp.dest('dist/images'))
+    .pipe(gulp.dest('dist/app/images'))
     .pipe($.size({title: 'images'}));
+});
+
+// Compile express server to ECMAScript 5
+gulp.task('server:build', function() {
+  return gulp.src('server/**/*.js')
+    .pipe($.babel({blacklist: ['useStrict'], modules: 'common'}))
+    .pipe(gulp.dest('.tmp/server'));
 });
 
 // Copy web fonts to dist
@@ -68,7 +80,7 @@ gulp.task('fonts', function () {
   return gulp.src(require('main-bower-files')().concat(['app/{,styles/}fonts/**/*']))
     .pipe($.filter('**/*.{eot,svg,ttf,woff}'))
     .pipe($.flatten())
-    .pipe(gulp.dest('dist/fonts'));
+    .pipe(gulp.dest('dist/app/fonts'));
 });
 
 // Compile and automatically prefix stylesheets
@@ -87,7 +99,7 @@ gulp.task('html', ['styles'], function () {
   var cssChannel = lazypipe()
     .pipe(minifyCSS)
     .pipe($.replace, /'fonts\/glyphicons[.a-z]*/g, '\'../fonts')
-  var assets = $.useref.assets({searchPath: '{.tmp,app}'});
+  var assets = $.useref.assets({searchPath: '{.tmp,app,.}'});
 
   return gulp.src('app/*.html')
     .pipe(assets)
@@ -99,7 +111,7 @@ gulp.task('html', ['styles'], function () {
     .pipe($.useref())
     // Minify any HTML
     .pipe($.if('*.html', $.minifyHtml({conditionals: true, loose: true})))
-    .pipe(gulp.dest('dist'))
+    .pipe(gulp.dest('dist/app'))
     .pipe($.size({title: 'html'}));
 });
 
@@ -115,6 +127,7 @@ gulp.task('clean', function (callback) {
 gulp.task('connect', ['styles'], function () {
   var serveStatic = require('serve-static');
   var serveIndex = require('serve-index');
+  var httpProxy = require('http-proxy');
   var app = require('connect')()
     .use(DevWebpackCompiler.getWebpack())
     .use(require('connect-livereload')({port: 35729}))
@@ -124,6 +137,11 @@ gulp.task('connect', ['styles'], function () {
     // e.g. in app/index.html you should use ../bower_components
     .use('/bower_components', serveStatic('bower_components'))
     .use(serveIndex('app'));
+
+  var serverProxy = httpProxy.createProxyServer();
+  app.use(function(req, res){ 
+    serverProxy.web(req, res, { target: 'http://localhost:3000' });
+  });
 
   require('http').createServer(app)
     .listen(9000)
@@ -155,11 +173,8 @@ gulp.task('webpack', ['templates'], function(callback) {
 gulp.task('extras', function () {
   return gulp.src([
     'app/*.*',
-    '!app/*.html',
-    'node_modules/apache-server-configs/dist/.htaccess'
-  ], {
-    dot: true
-  }).pipe(gulp.dest('dist'));
+    '!app/*.html'
+  ]).pipe(gulp.dest('dist/app'));
 });
 
 // Pack JavaScript modules for production
@@ -167,42 +182,82 @@ gulp.task('webpack:build', ['templates'], function(callback) {
   var conf = Object.create(webpackConfig);
 
   conf.plugins = conf.plugins.concat(
-		new webpack.optimize.DedupePlugin(),
-		new webpack.optimize.UglifyJsPlugin()
-	);
+    new webpack.optimize.DedupePlugin(),
+    new webpack.optimize.UglifyJsPlugin()
+  );
 
   // run webpack
-	webpack(conf, function(err, stats) {
-		if(err) throw new $.util.PluginError("webpack:build", err);
-		$.util.log("[webpack:build]", stats.toString({
-			colors: true
-		}));
-		callback();
-	});
+  webpack(conf, function(err, stats) {
+    if(err) throw new $.util.PluginError("webpack:build", err);
+    $.util.log("[webpack:build]", stats.toString({
+      colors: true
+    }));
+    callback();
+  });
 });
 
 // Run karma for development, will watch and reload
-gulp.task('tdd', function(callback) {
+gulp.task('tdd:frontend', function(callback) {
   karma.start({
     configFile: __dirname + '/karma.conf.js'
   }, callback);
+  gulp.watch('app/scripts/**/*.hbs', ['templates']);
+});
+
+// Reload tests on server when file changes
+gulp.task('tdd:server', function() {
+  gulp.watch('server/**/*.js', ['test:server']);
+  gulp.watch('test/server/**/*.js', ['test:server']);
+});
+
+// Run tests on frontend
+gulp.task('test:frontend', ['templates'], function(callback) {
+  karma.start({
+    configFile: __dirname + '/karma.conf.js',
+    singleRun: true
+  }, callback);
+});
+
+// Run server tests
+gulp.task('test:server', function() {
+  var files = ['test/server/setup.js', 'test/server/unit/**/*.spec.js'];
+
+  require('babel/register')({ modules: 'common' });
+  return gulp.src(files, { read: false })
+    .pipe($.mocha({ reporter: 'spec', growl: true }));
 });
 
 // Run tests and report for ci
-gulp.task('test', function(callback) {
+gulp.task('test:frontend:ci', ['templates'], function(callback) {
   karma.start({
     configFile: __dirname + '/karma.conf.js',
     singleRun: true,
     browsers: ['PhantomJS'],
     reporters: ['dots', 'junit'],
     junitReporter: {
-      outputFile: '.tmp/test-results.xml',
+      outputFile: '.tmp/frontend-tests.xml',
     }
   }, callback);
 });
 
+// Run server tests
+gulp.task('test:server:ci', function() {
+  var files = ['test/server/setup.js', 'test/server/unit/**/*.spec.js'];
+  process.env.XUNIT_FILE = '.tmp/server-tests.xml';
+
+  // ensure .tmp path exists, otherwise an error will be throw
+  var fs = require('fs');
+  if (!fs.existsSync('.tmp')) {
+    fs.mkdirSync('.tmp');
+  }
+
+  require('babel/register')({ modules: 'common' });
+  return gulp.src(files, { read: false })
+    .pipe($.mocha({ reporter: 'xunit-file' }));
+});
+
 // Run development server environmnet
-gulp.task('serve', ['webpack', 'connect', 'watch'], function () {
+gulp.task('serve', ['webpack', 'run:server', 'connect', 'watch'], function () {
   require('opn')('http://localhost:9000');
 });
 
@@ -219,14 +274,58 @@ gulp.task('watch', ['connect'], function () {
   ]).on('change', $.livereload.changed);
 
   gulp.watch('app/scripts/**/*.js', ['webpack']);
-  gulp.watch('app/scripts/**/*.hbs', ['webpack']);
+  gulp.watch('app/scripts/**/*.hbs', ['templates', 'webpack']);
   gulp.watch('app/styles/**/*.less', ['styles']);
 });
 
+// Watch for changes on server files
+gulp.task('run:server', ['server:build'], function() {
+  var preprocessed = gulp.src(['.tmp/server/app.js'])
+    .pipe($.preprocess({
+      context: { DEVELOPMENT: true }
+    }))
+    .pipe(gulp.dest('.tmp/server'))
+    .on('end', function() {
+      $.nodemon({
+        script: '.tmp/server/app.js',
+        watch: ['.tmp/server'],
+        ignore: ['node_modules']
+      });
+    });
+});
+
+// Perfom frontend and backend tests
+gulp.task('test', ['test:server', 'test:frontend']);
+
+// Run all tests and create xunit reports, usefull for continuous integration
+gulp.task('test:ci', ['test:server:ci', 'test:frontend:ci']);
+
+// Put the whole project on tdd mode
+gulp.task('tdd', ['tdd:server', 'tdd:frontend']);
+
+// Compile and copy compiled server to dist
+gulp.task('server', ['server:build'], function() {
+  var merge = require('merge-stream');
+
+  var copied = gulp.src([
+    'package.json',
+    '.tmp/server/**/*.js',
+    '!.tmp/server/app.js'
+  ]).pipe(gulp.dest('dist'));
+
+  var preprocessed = gulp.src(['.tmp/server/app.js'])
+    .pipe($.preprocess({
+      context: { PRODUCTION: true }
+    }))
+    .pipe(gulp.dest('dist'));
+
+  return merge(copied, preprocessed);
+});
+
 // Build the project for distribution
-gulp.task('build', ['jshint', 'webpack:build', 'html', 'images', 'fonts', 'extras'], function () {
+gulp.task('build', ['jshint', 'webpack:build', 'server', 'html', 'images', 'fonts', 'extras'], function () {
   var size = $.size({title: 'build', gzip: true })
-  return gulp.src('dist/**/*.js')
+  return gulp.src('dist/app/**/*.js')
     .pipe(size)
     .pipe($.notify({
       onLast: true,

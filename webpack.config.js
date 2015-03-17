@@ -17,7 +17,7 @@ module.exports = {
 
   // Put generated bundles on distribution path
   output: {
-    path: 'dist/scripts',
+    path: 'dist/app/scripts',
     publicPath: '/scripts/',
     filename: '[name].js',
     chunkFilename: '[name]-[chunkhash].js'
