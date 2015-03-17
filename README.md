@@ -1,8 +1,8 @@
-ES6 Marionette project
-======================
+ES6 Marionette and Express project
+==================================
 Looking for boilerplate projects to start working with ECMAScript 6 I didn't found a project that fit my requirements, so I take the best part of other projects and put all together here. This project can be used to bootstrap new projects with ECMAScript 6 support.
 
-This is an implementation of [Clean ES6 Project](https://github.com/abiee/clean-es6-project) integrating Backbone.Marionette to the stack.
+This is implementation adds Express server to the [ES6 Marionette Project](https://github.com/abiee/es6-marionette).
 
 What's inside
 ----------------
@@ -27,7 +27,7 @@ Setup
 -----
 Clone the repository and install the dependencies.
 
-    $ git clone https://github.com/abiee/es6-marionette.git my-project
+    $ git clone https://github.com/abiee/es6-marionette-express.git my-project
     $ cd my-project
     $ npm install
     $ bower install
